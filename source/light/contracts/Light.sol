@@ -6,6 +6,7 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./interfaces/ILight.sol";
 
 /**
@@ -13,7 +14,7 @@ import "./interfaces/ILight.sol";
  * Ported from Airswap to add support for sending ERC1155 tokens and removing fee logic.
  * @notice https://www.airswap.io/
  */
-contract Light is ILight {
+contract Light is ILight, ReentrancyGuard {
   using SafeERC20 for IERC20;
   using SafeMath for uint256;
 
@@ -59,7 +60,6 @@ contract Light is ILight {
   mapping(address => mapping(uint256 => uint256)) internal _nonceGroups;
 
   mapping(address => address) public override authorized;
-
 
   constructor() {
     uint256 currentChainId = getChainId();
@@ -180,7 +180,7 @@ contract Light is ILight {
     uint8 v,
     bytes32 r,
     bytes32 s
-  ) public override {
+  ) public override nonReentrant {
     require(DOMAIN_CHAIN_ID == getChainId(), "CHAIN_ID_CHANGED");
 
     // Ensure the expiry is not passed
