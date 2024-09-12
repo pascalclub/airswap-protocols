@@ -74,6 +74,7 @@ contract Wrapper {
       signerToken,
       signerAmount,
       senderToken,
+      0, // fake placeholder
       senderAmount,
       v,
       r,

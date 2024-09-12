@@ -9,9 +9,9 @@ interface ILight {
     address indexed signerWallet,
     address signerToken,
     uint256 signerAmount,
-    uint256 signerFee,
     address indexed senderWallet,
     address senderToken,
+    uint256 senderTokenId,
     uint256 senderAmount
   );
 
@@ -21,10 +21,6 @@ interface ILight {
 
   event Revoke(address indexed signer, address indexed signerWallet);
 
-  event SetFee(uint256 indexed signerFee);
-
-  event SetFeeWallet(address indexed feeWallet);
-
   function swap(
     uint256 nonce,
     uint256 expiry,
@@ -32,6 +28,7 @@ interface ILight {
     address signerToken,
     uint256 signerAmount,
     address senderToken,
+    uint256 senderTokenId,
     uint256 senderAmount,
     uint8 v,
     bytes32 r,
@@ -46,6 +43,7 @@ interface ILight {
     address signerToken,
     uint256 signerAmount,
     address senderToken,
+    uint256 senderTokenId,
     uint256 senderAmount,
     uint8 v,
     bytes32 r,

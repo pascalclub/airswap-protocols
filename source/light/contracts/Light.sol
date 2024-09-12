@@ -3,16 +3,18 @@
 /* solhint-disable var-name-mixedcase */
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./interfaces/ILight.sol";
 
 /**
  * @title AirSwap Light: Atomic Swap between Tokens
+ * Ported from Airswap to add support for sending ERC1155 tokens and removing fee logic.
  * @notice https://www.airswap.io/
  */
-contract Light is ILight, Ownable {
+contract Light is ILight, ReentrancyGuard {
   using SafeERC20 for IERC20;
   using SafeMath for uint256;
 
@@ -37,24 +39,21 @@ contract Light is ILight, Ownable {
         "address signerWallet,",
         "address signerToken,",
         "uint256 signerAmount,",
-        "uint256 signerFee,",
         "address senderWallet,",
         "address senderToken,",
+        "uint256 senderTokenId,",
         "uint256 senderAmount",
         ")"
       )
     );
 
-  bytes32 public constant DOMAIN_NAME = keccak256("SWAP_LIGHT");
-  bytes32 public constant DOMAIN_VERSION = keccak256("3");
+  bytes32 public constant DOMAIN_NAME = keccak256("SWAP_LIGHT_1155");
+  bytes32 public constant DOMAIN_VERSION = keccak256("1");
   uint256 public immutable DOMAIN_CHAIN_ID;
   bytes32 public immutable DOMAIN_SEPARATOR;
 
-  uint256 public constant FEE_DIVISOR = 10000;
-  uint256 public signerFee;
-
   /**
-   * @notice Double mapping of signers to nonce groups to nonce states
+   * @dev Double mapping of signers to nonce groups to nonce states
    * @dev The nonce group is computed as nonce / 256, so each group of 256 sequential nonces uses the same key
    * @dev The nonce states are encoded as 256 bits, for each nonce in the group 0 means available and 1 means used
    */
@@ -62,13 +61,7 @@ contract Light is ILight, Ownable {
 
   mapping(address => address) public override authorized;
 
-  address public feeWallet;
-
-  constructor(address _feeWallet, uint256 _fee) {
-    // Ensure the fee wallet is not null
-    require(_feeWallet != address(0), "INVALID_FEE_WALLET");
-    // Ensure the fee is less than divisor
-    require(_fee < FEE_DIVISOR, "INVALID_FEE");
+  constructor() {
     uint256 currentChainId = getChainId();
     DOMAIN_CHAIN_ID = currentChainId;
     DOMAIN_SEPARATOR = keccak256(
@@ -80,19 +73,16 @@ contract Light is ILight, Ownable {
         this
       )
     );
-
-    feeWallet = _feeWallet;
-    signerFee = _fee;
   }
 
   /**
-   * @notice Atomic ERC20 Swap
+   * @notice Atomic ERC20/IERC1155 Swap
    * @param nonce uint256 Unique and should be sequential
    * @param expiry uint256 Expiry in seconds since 1 January 1970
    * @param signerWallet address Wallet of the signer
    * @param signerToken address ERC20 token transferred from the signer
    * @param signerAmount uint256 Amount transferred from the signer
-   * @param senderToken address ERC20 token transferred from the sender
+   * @param senderToken address ERC1155 token transferred from the sender
    * @param senderAmount uint256 Amount transferred from the sender
    * @param v uint8 "v" value of the ECDSA signature
    * @param r bytes32 "r" value of the ECDSA signature
@@ -105,7 +95,8 @@ contract Light is ILight, Ownable {
     address signerToken,
     uint256 signerAmount,
     address senderToken,
-    uint256 senderAmount,
+    uint256 senderTokenId,
+    uint256 senderAmount,    
     uint8 v,
     bytes32 r,
     bytes32 s
@@ -118,33 +109,12 @@ contract Light is ILight, Ownable {
       signerToken,
       signerAmount,
       senderToken,
+      senderTokenId,
       senderAmount,
       v,
       r,
       s
     );
-  }
-
-  /**
-   * @notice Set the fee wallet
-   * @param newFeeWallet address Wallet to transfer signerFee to
-   */
-  function setFeeWallet(address newFeeWallet) external onlyOwner {
-    // Ensure the new fee wallet is not null
-    require(newFeeWallet != address(0), "INVALID_FEE_WALLET");
-    feeWallet = newFeeWallet;
-    emit SetFeeWallet(newFeeWallet);
-  }
-
-  /**
-   * @notice Set the fee
-   * @param newSignerFee uint256 Value of the fee in basis points
-   */
-  function setFee(uint256 newSignerFee) external onlyOwner {
-    // Ensure the fee is less than divisor
-    require(newSignerFee < FEE_DIVISOR, "INVALID_FEE");
-    signerFee = newSignerFee;
-    emit SetFee(newSignerFee);
   }
 
   /**
@@ -184,14 +154,14 @@ contract Light is ILight, Ownable {
   }
 
   /**
-   * @notice Atomic ERC20 Swap with Recipient
+   * @notice Atomic ERC20/IERC1155 Swap with Recipient
    * @param recipient Wallet of the recipient
    * @param nonce uint256 Unique and should be sequential
    * @param expiry uint256 Expiry in seconds since 1 January 1970
    * @param signerWallet address Wallet of the signer
    * @param signerToken address ERC20 token transferred from the signer
    * @param signerAmount uint256 Amount transferred from the signer
-   * @param senderToken address ERC20 token transferred from the sender
+   * @param senderToken address IERC1155 token transferred from the sender
    * @param senderAmount uint256 Amount transferred from the sender
    * @param v uint8 "v" value of the ECDSA signature
    * @param r bytes32 "r" value of the ECDSA signature
@@ -205,11 +175,12 @@ contract Light is ILight, Ownable {
     address signerToken,
     uint256 signerAmount,
     address senderToken,
+    uint256 senderTokenId,
     uint256 senderAmount,
     uint8 v,
     bytes32 r,
     bytes32 s
-  ) public override {
+  ) public override nonReentrant {
     require(DOMAIN_CHAIN_ID == getChainId(), "CHAIN_ID_CHANGED");
 
     // Ensure the expiry is not passed
@@ -223,6 +194,7 @@ contract Light is ILight, Ownable {
       signerAmount,
       msg.sender,
       senderToken,
+      senderTokenId,
       senderAmount
     );
 
@@ -238,20 +210,16 @@ contract Light is ILight, Ownable {
     }
 
     // Transfer token from sender to signer
-    IERC20(senderToken).safeTransferFrom(
+    IERC1155(senderToken).safeTransferFrom(
       msg.sender,
       signerWallet,
-      senderAmount
+      senderTokenId,
+      senderAmount,
+      bytes("")
     );
 
     // Transfer token from signer to recipient
     IERC20(signerToken).safeTransferFrom(signerWallet, recipient, signerAmount);
-
-    // Transfer fee from signer to feeWallet
-    uint256 feeAmount = signerAmount.mul(signerFee).div(FEE_DIVISOR);
-    if (feeAmount > 0) {
-      IERC20(signerToken).safeTransferFrom(signerWallet, feeWallet, feeAmount);
-    }
 
     // Emit a Swap event
     emit Swap(
@@ -260,9 +228,9 @@ contract Light is ILight, Ownable {
       signerWallet,
       signerToken,
       signerAmount,
-      signerFee,
       msg.sender,
       senderToken,
+      senderTokenId,
       senderAmount
     );
   }
@@ -319,44 +287,6 @@ contract Light is ILight, Ownable {
   }
 
   /**
-   * @notice Hash order parameters
-   * @param nonce uint256
-   * @param expiry uint256
-   * @param signerWallet address
-   * @param signerToken address
-   * @param signerAmount uint256
-   * @param senderToken address
-   * @param senderAmount uint256
-   * @return bytes32
-   */
-  function _getOrderHash(
-    uint256 nonce,
-    uint256 expiry,
-    address signerWallet,
-    address signerToken,
-    uint256 signerAmount,
-    address senderWallet,
-    address senderToken,
-    uint256 senderAmount
-  ) internal view returns (bytes32) {
-    return
-      keccak256(
-        abi.encode(
-          LIGHT_ORDER_TYPEHASH,
-          nonce,
-          expiry,
-          signerWallet,
-          signerToken,
-          signerAmount,
-          signerFee,
-          senderWallet,
-          senderToken,
-          senderAmount
-        )
-      );
-  }
-
-  /**
    * @notice Recover the signatory from a signature
    * @param hash bytes32
    * @param v uint8
@@ -376,5 +306,44 @@ contract Light is ILight, Ownable {
     // Ensure the signatory is not null
     require(signatory != address(0), "INVALID_SIG");
     return signatory;
+  }
+
+  /**
+   * @notice Hash order parameters
+   * @param nonce uint256
+   * @param expiry uint256
+   * @param signerWallet address
+   * @param signerToken address
+   * @param signerAmount uint256
+   * @param senderToken address
+   * @param senderAmount uint256
+   * @return bytes32
+   */
+  function _getOrderHash(
+    uint256 nonce,
+    uint256 expiry,
+    address signerWallet,
+    address signerToken,
+    uint256 signerAmount,
+    address senderWallet,
+    address senderToken,
+    uint256 senderTokenId,
+    uint256 senderAmount
+  ) internal pure returns (bytes32) {
+    return
+      keccak256(
+        abi.encode(
+          LIGHT_ORDER_TYPEHASH,
+          nonce,
+          expiry,
+          signerWallet,
+          signerToken,
+          signerAmount,
+          senderWallet,
+          senderToken,
+          senderTokenId,
+          senderAmount
+        )
+      );
   }
 }

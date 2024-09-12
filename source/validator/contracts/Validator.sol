@@ -22,6 +22,7 @@ contract Validator is Ownable {
     uint256 senderAmount;
     IERC20 signerToken;
     IERC20 senderToken;
+    uint256 senderTokenId;
     uint8 v;
     bytes32 r;
     bytes32 s;
@@ -38,9 +39,9 @@ contract Validator is Ownable {
         "address signerWallet,",
         "address signerToken,",
         "uint256 signerAmount,",
-        "uint256 signerFee,",
         "address senderWallet,",
         "address senderToken,",
+        "uint256 senderTokenId,",
         "uint256 senderAmount",
         ")"
       )
@@ -105,9 +106,8 @@ contract Validator is Ownable {
     details.senderWallet = senderWallet;
     bytes32 hashed = _getOrderHash(details);
     address signatory = _getSignatory(hashed, v, r, s);
-    uint256 swapFee = details.signerAmount.mul(Light(light).signerFee()).div(
-      Light(light).FEE_DIVISOR()
-    );
+    uint256 swapFee = 0;
+
     // Ensure the signatory is not null
     if (signatory == address(0)) {
       errors[errCount] = "INVALID_SIG";
@@ -184,7 +184,7 @@ contract Validator is Ownable {
           _details.signerWallet,
           _details.signerToken,
           _details.signerAmount,
-          Light(light).signerFee(),
+          0,
           _details.senderWallet,
           _details.senderToken,
           _details.senderAmount

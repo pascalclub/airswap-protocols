@@ -42,9 +42,9 @@ export function createLightOrder({
   signerWallet = ADDRESS_ZERO,
   signerToken = ADDRESS_ZERO,
   signerAmount = '0',
-  signerFee = '0',
   senderWallet = ADDRESS_ZERO,
   senderToken = ADDRESS_ZERO,
+  senderTokenId = '1',
   senderAmount = '0',
 }: any): UnsignedLightOrder {
   return {
@@ -53,9 +53,9 @@ export function createLightOrder({
     signerWallet,
     signerToken,
     signerAmount: String(signerAmount),
-    signerFee: String(signerFee),
     senderWallet,
     senderToken,
+    senderTokenId: String(senderTokenId),
     senderAmount: String(senderAmount),
   }
 }
@@ -132,6 +132,7 @@ export function lightOrderToParams(order: LightOrder): Array<string> {
     order.signerToken,
     order.signerAmount,
     order.senderToken,
+    order.senderTokenId,
     order.senderAmount,
     order.v,
     order.r,
